@@ -1,5 +1,5 @@
 [package]
-name = "multipart_stream"
+name = "multipart_async_stream"
 version = "0.1.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"

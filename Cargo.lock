@@ -663,7 +663,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "multipart_stream"
+name = "multipart_async_stream"
 version = "0.1.1"
 dependencies = [
  "bytes 1.10.1",
