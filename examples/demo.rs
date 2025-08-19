@@ -17,7 +17,7 @@ async fn main() {
         .and_then(|s| s.split("boundary=").nth(1))
         .map(|s| s.trim().as_bytes().to_vec().into_boxed_slice());
     let s = response.bytes_stream();
-    let mut m = multipart_stream::MultiPartStream::new(s, &boundary.unwrap());
+    let mut m = multipart_stream::MultipartStream::new(s, &boundary.unwrap());
     while let Ok(x) = m.try_next().await {
         println!("Part: {x:?}");
     }

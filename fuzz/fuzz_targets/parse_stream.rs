@@ -4,7 +4,7 @@
 use bytes::Bytes;
 use futures_util::{TryStream, stream};
 use libfuzzer_sys::fuzz_target;
-use multipart_stream::MultiPartStream;
+use multipart_stream::MultipartStream;
 use std::convert::Infallible;
 use tokio::runtime::Builder;
 
@@ -27,7 +27,7 @@ fn do_fuzz(data: &[u8]) {
 
     rt.block_on(async {
         let s = create_stream_from_chunks(body, 32);
-        let mut stream = MultiPartStream::new(s, boundary);
+        let mut stream = MultipartStream::new(s, boundary);
         loop {
             if stream.try_next().await.is_err() {
                 break;

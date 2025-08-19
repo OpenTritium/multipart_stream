@@ -3,6 +3,8 @@ name: Rust CI
 on:
   push:
     branches: [ "master" ]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     branches: [ "master" ]
 
@@ -15,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -39,7 +41,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --all-features
@@ -58,7 +60,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@nightly
+    - uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy, rustfmt
     - name: Install cargo fuzz
@@ -74,3 +76,20 @@ jobs:
       with:
         name: fuzzing-artifacts-${{ matrix.fuzz_target }}-${{ github.sha }}
         path: fuzz/artifacts
+
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [check_and_format, test, fuzz]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify crate
+        run: cargo verify-project --version ${{ github.ref_name }}
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -48,7 +48,7 @@ impl From<httparse::Error> for ParseResult {
     fn from(err: httparse::Error) -> Self { ParseResult::Failed(ParseError::Try(err)) }
 }
 
-pub struct MultiPartStream<S>
+pub struct MultipartStream<S>
 where
     S: TryStream<Ok = Bytes> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
@@ -63,7 +63,7 @@ where
     buf: BytesMut,
 }
 
-impl<S> MultiPartStream<S>
+impl<S> MultipartStream<S>
 where
     S: TryStream<Ok = Bytes> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
@@ -280,7 +280,7 @@ value1\r\n\
 --boundary--\r\n";
 
         let stream = create_stream_from_chunks(CONTENT, CONTENT.len());
-        let mut multipart_stream = MultiPartStream::new(stream, BOUNDARY.as_bytes());
+        let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
         // 解析第一个部分
         // let x = multipart_stream.try_next().await;
         let part = multipart_stream.try_next().await.unwrap();
@@ -309,7 +309,7 @@ value2 with CRLF\r\n\
 
         // 使用一个很小的块大小来强制测试缓冲逻辑
         let stream = create_stream_from_chunks(BODY, 5);
-        let mut multipart_stream = MultiPartStream::new(stream, BOUNDARY.as_bytes());
+        let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
 
         // 解析第一部分
         let part1 = multipart_stream.try_next().await.unwrap();
@@ -340,7 +340,7 @@ value1\r\n\
 --boundary--"; // 注意：末尾没有 `\r\n`
 
         let stream = create_stream_from_chunks(BODY, BODY.len());
-        let mut multipart_stream = MultiPartStream::new(stream, BOUNDARY.as_bytes());
+        let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
 
         // 解析第一个部分
         // let _ = multipart_stream.try_next().await;
@@ -364,7 +364,7 @@ Content-Disposition: form-data; name=\"field1\"\r\n\
 value1 is not complete";
 
         let stream = create_stream_from_chunks(BODY, BODY.len());
-        let mut multipart_stream = MultiPartStream::new(stream, BOUNDARY.as_bytes());
+        let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
 
         // 解析应该会失败，因为流在找到下一个边界前就终止了
         let result = multipart_stream.try_next().await;
@@ -380,7 +380,7 @@ value1 is not complete";
 Content-Disposition: form-data; na";
 
         let stream = create_stream_from_chunks(BODY, BODY.len());
-        let mut multipart_stream = MultiPartStream::new(stream, BOUNDARY.as_bytes());
+        let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
 
         // 解析应该会失败，因为流在 headers 结束前就终止了
         let result = multipart_stream.try_next().await;
@@ -393,7 +393,7 @@ Content-Disposition: form-data; na";
         const BODY: &[u8] = b"";
 
         let stream = create_stream_from_chunks(BODY, 10);
-        let mut multipart_stream = MultiPartStream::new(stream, BOUNDARY.as_bytes());
+        let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
 
         // 对于空流，应该提前终止
         let result = multipart_stream.try_next().await;
@@ -417,7 +417,7 @@ value2\r\n\
 --boundary--\r\n";
 
         let stream = create_stream_from_chunks(BODY, 15); // Usar chunks pequeños
-        let mut multipart_stream = MultiPartStream::new(stream, BOUNDARY.as_bytes());
+        let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
         let part1 = multipart_stream.try_next().await.unwrap();
         assert_eq!(part1.headers().get("content-disposition").unwrap(), "form-data; name=\"field1\"");
         assert_eq!(part1.body(), &Bytes::from_static(b"value1\r\n"));
