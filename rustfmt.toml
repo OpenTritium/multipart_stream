@@ -1,0 +1,14 @@
+max_width = 120
+fn_params_layout = "Compressed"
+fn_single_line = true
+use_small_heuristics = "Max"
+comment_width = 120
+condense_wildcard_suffixes = true
+format_strings = true
+imports_granularity = "Crate"
+reorder_impl_items = true
+single_line_if_else_max_width = 64
+unstable_features = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+wrap_comments = true
