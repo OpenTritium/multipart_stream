@@ -8,7 +8,6 @@ repository = "https://github.com/OpenTritium/multipart_stream"
 readme = "README.md"
 keywords = ["multipart", "stream", "async", "parser", "http"]
 categories = [
-    "async",
     "network-programming",
     "parser-implementations",
     "web-programming",
