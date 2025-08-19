@@ -109,7 +109,7 @@ where
                     }
                     *state = Preamble(new_pos);
                 };
-                return Partial;
+                Partial
             }
             &mut ReadingHeaders(scan) => {
                 // RFC 2046 规定了使用 CRLF
@@ -144,7 +144,7 @@ where
                     }
                     *state = ReadingHeaders(new_pos);
                 };
-                return Partial;
+                Partial
             }
             &mut ReadingBody { ref mut headers, scan } => {
                 if buf.len() < self.boundary_len + scan {
@@ -167,18 +167,16 @@ where
                             let part = split_part(buf);
                             // 匹配到结束边界以后就可以将状态设置为完成了，下次调用此函数会返回 Completed
                             *state = Finished;
-                            return Full(part);
+                            Full(part)
                         }
                         // 没有到真正的结尾
                         Some(_) => {
                             let part = split_part(buf);
                             *state = Preamble(0);
-                            return Full(part);
+                            Full(part)
                         }
                         // 把后面的两字节接收了再来判断
-                        None => {
-                            return Partial;
-                        }
+                        None => Partial,
                     }
                 } else {
                     let new_pos = buf.len() - self.boundary_len + 1;
@@ -186,10 +184,10 @@ where
                         return Failed(ParseError::BufferNoChange);
                     }
                     *state = ReadingBody { headers: mem::take(headers), scan: new_pos };
-                    return Partial;
+                    Partial
                 }
             }
-            Finished => return Completed,
+            Finished => Completed,
         }
     }
 

@@ -1,0 +1,24 @@
+[package]
+name = "multipart_stream-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tokio = { version = "1.47.1", features = ["full"] }
+bytes = "1.10.1"
+futures-util = { version = "0.3.31", features = ["tokio-io"] }
+
+[dependencies.multipart_stream]
+path = ".."
+
+[[bin]]
+name = "parse_stream"
+path = "fuzz_targets/parse_stream.rs"
+test = false
+doc = false
+bench = false
