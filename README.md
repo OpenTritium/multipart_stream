@@ -1,9 +1,9 @@
 # Multipart Stream
 
-![alt text](https://img.shields.io/crates/v/multipart_stream.svg)
+![alt text](https://img.shields.io/crates/v/multipart_async_stream.svg)
 
 
-![alt text](https://docs.rs/multipart_stream/badge.svg)
+![alt text](https://docs.rs/multipart_async_stream/badge.svg)
 
 
 ![alt text](https://github.com/OpenTritium/multipart_stream/actions/workflows/ci.yaml/badge.svg)
