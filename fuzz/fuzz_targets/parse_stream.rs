@@ -1,5 +1,4 @@
 #![no_main]
-#![feature(slice_as_array)]
 
 use bytes::Bytes;
 use futures_util::{TryStream, stream};
