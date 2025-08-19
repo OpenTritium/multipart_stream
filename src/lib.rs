@@ -56,8 +56,8 @@ where
     rx: S,
     terminated: bool,
     state: ParserState,
+    boundary_pattern: Box<[u8]>,
     boundary_finder: Finder<'static>,
-    boundary_len: usize,
     header_body_splitter_finder: Finder<'static>,
     header_body_splitter_len: usize,
     buf: BytesMut,
@@ -72,17 +72,23 @@ where
         let mut buf = Vec::with_capacity(boundary.len() + 2);
         buf.extend_from_slice(b"--");
         buf.extend_from_slice(boundary);
-        let pattern = Box::leak(buf.into_boxed_slice());
+        let boundary_pattern = buf.into_boxed_slice();
+        let boundary_finder = unsafe {
+            // 我们知道 'pattern' 会和 'Self' 实例活得一样久,
+            // 所以将它的生命周期转换为 'static' 在这里是安全的。
+            let static_pattern: &'static [u8] = mem::transmute(&*boundary_pattern);
+            Finder::new(static_pattern)
+        };
         const HEADER_BODY_SPLITTER: &[u8] = b"\r\n\r\n";
         Self {
             rx: stream,
             terminated: false,
             state: ParserState::Preamble(0),
             buf: BytesMut::new(),
-            boundary_finder: Finder::new(pattern),
-            boundary_len: pattern.len(),
+            boundary_finder,
             header_body_splitter_finder: Finder::new(HEADER_BODY_SPLITTER),
             header_body_splitter_len: HEADER_BODY_SPLITTER.len(),
+            boundary_pattern,
         }
     }
 
@@ -94,16 +100,16 @@ where
         let buf = &mut self.buf;
         match state {
             &mut Preamble(scan) => {
-                if buf.len() < self.boundary_len + scan {
+                if buf.len() < self.boundary_pattern.len() + scan {
                     // 还没有足够的字节来匹配边界
                     return Partial;
                 }
                 if let Some(pos) = self.boundary_finder.find(&buf[scan..]) {
-                    buf.advance(pos + self.boundary_len + 2); // +2 是因为边界和 headers 间有一个 `\r\n`
+                    buf.advance(pos + self.boundary_pattern.len() + 2); // +2 是因为边界和 headers 间有一个 `\r\n`
                     *state = ReadingHeaders(0);
                 } else {
                     // 扫描只会进行到最后一个满足窗口大小的窗口，所以将 scan 指定到最后满足最后一个窗口的位置之后
-                    let new_pos = buf.len() - self.boundary_len + 1;
+                    let new_pos = buf.len() - self.boundary_pattern.len() + 1;
                     if new_pos == scan {
                         return Failed(ParseError::BufferNoChange);
                     }
@@ -147,7 +153,7 @@ where
                 Partial
             }
             &mut ReadingBody { ref mut headers, scan } => {
-                if buf.len() < self.boundary_len + scan {
+                if buf.len() < self.boundary_pattern.len() + scan {
                     // 还没有足够的字节来匹配边界
                     return Partial;
                 }
@@ -155,7 +161,7 @@ where
                     let body_end = scan + pos;
                     let tail = {
                         // 匹配 `--  boundary --` 最后的两根 `-`
-                        let pos = body_end + self.boundary_len;
+                        let pos = body_end + self.boundary_pattern.len();
                         buf.get(pos..pos + 2)
                     };
                     let mut split_part = |buf: &mut BytesMut| {
@@ -179,7 +185,7 @@ where
                         None => Partial,
                     }
                 } else {
-                    let new_pos = buf.len() - self.boundary_len + 1;
+                    let new_pos = buf.len() - self.boundary_pattern.len() + 1;
                     if new_pos == scan {
                         return Failed(ParseError::BufferNoChange);
                     }
