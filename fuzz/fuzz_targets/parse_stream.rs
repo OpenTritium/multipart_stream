@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use futures_util::{TryStream, stream};
 use libfuzzer_sys::fuzz_target;
-use multipart_stream::MultipartStream;
+use multipart_async_stream::MultipartStream;
 use std::convert::Infallible;
 use tokio::runtime::Builder;
 
