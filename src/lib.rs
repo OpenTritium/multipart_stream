@@ -105,7 +105,12 @@ where
                     return Partial;
                 }
                 if let Some(pos) = self.boundary_finder.find(&buf[scan..]) {
-                    buf.advance(pos + self.boundary_pattern.len() + 2); // +2 是因为边界和 headers 间有一个 `\r\n`
+                    let total_advance_len = scan + pos + self.boundary_pattern.len() + 2; // +2 是因为边界和 headers 间有一个 `\r\n`
+                    if buf.len() < total_advance_len {
+                        // 找到了 boundary，但是还需要判断后续接收是否还有两个字节
+                        return Partial;
+                    }
+                    buf.advance(pos + self.boundary_pattern.len() + 2);
                     *state = ReadingHeaders(0);
                 } else {
                     // 扫描只会进行到最后一个满足窗口大小的窗口，所以将 scan 指定到最后满足最后一个窗口的位置之后
