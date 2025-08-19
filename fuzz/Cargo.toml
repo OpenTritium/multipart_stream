@@ -13,7 +13,7 @@ tokio = { version = "1.47.1", features = ["full"] }
 bytes = "1.10.1"
 futures-util = { version = "0.3.31", features = ["tokio-io"] }
 
-[dependencies.multipart_stream]
+[dependencies.multipart_async_stream]
 path = ".."
 
 [[bin]]
