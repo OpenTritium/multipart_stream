@@ -4,11 +4,7 @@ use http::header::CONTENT_TYPE;
 async fn main() {
     const URL: &str = "https://mat1.gtimg.com/pingjs/ext2020/newom/build/static/images/new_logo.png";
     let client = reqwest::Client::new();
-    let response = client
-        .get(URL)
-        .header("Range", "bytes=0-32,64-128") // 请求前500字节
-        .send()
-        .await.unwrap();
+    let response = client.get(URL).header("Range", "bytes=0-31,64-127").send().await.unwrap();
     let boundary = response
         .headers()
         .get(CONTENT_TYPE)

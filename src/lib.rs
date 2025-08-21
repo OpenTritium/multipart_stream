@@ -170,7 +170,7 @@ where
                         buf.get(pos..pos + 2)
                     };
                     let mut split_part = |buf: &mut BytesMut| {
-                        let body = buf.split_to(body_end).freeze();
+                        let body = buf.split_to(body_end - 2).freeze(); // forget CRLF
                         Part::new(mem::take(headers), body)
                     };
                     match tail {
