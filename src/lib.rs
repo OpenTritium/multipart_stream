@@ -170,7 +170,8 @@ where
                         buf.get(pos..pos + 2)
                     };
                     let mut split_part = |buf: &mut BytesMut| {
-                        let body = buf.split_to(body_end - 2).freeze(); // forget CRLF
+                        println!("{body_end}");
+                        let body = buf.split_to(body_end.saturating_sub(2)).freeze(); // forget CRLF and handle on empty body
                         Part::new(mem::take(headers), body)
                     };
                     match tail {
@@ -285,7 +286,7 @@ value1\r\n\
         // let x = multipart_stream.try_next().await;
         let part = multipart_stream.try_next().await.unwrap();
         assert_eq!(part.headers().get("content-disposition").unwrap(), "form-data; name=\"field1\"");
-        assert_eq!(part.body(), &Bytes::from_static(b"value1\r\n"));
+        assert_eq!(part.body(), &Bytes::from_static(b"value1"));
 
         // 应该已经到达流的末尾
         let result = multipart_stream.try_next().await;
@@ -304,7 +305,7 @@ value1\r\n\
 Content-Disposition: form-data; name=\"field2\"\r\n\
 Content-Type: text/plain\r\n\
 \r\n\
-value2 with CRLF\r\n\
+value2 with CRLF\r\n\r\n\
 --X-BOUNDARY--\r\n";
 
         // 使用一个很小的块大小来强制测试缓冲逻辑
@@ -315,7 +316,7 @@ value2 with CRLF\r\n\
         let part1 = multipart_stream.try_next().await.unwrap();
         assert_eq!(part1.headers().get("content-disposition").unwrap(), "form-data; name=\"field1\"");
         assert!(!part1.headers().contains_key("content-type"));
-        assert_eq!(part1.body(), &Bytes::from_static(b"value1\r\n"));
+        assert_eq!(part1.body(), &Bytes::from_static(b"value1"));
 
         // 解析第二部分
         let part2 = multipart_stream.try_next().await.unwrap();
@@ -346,7 +347,7 @@ value1\r\n\
         // let _ = multipart_stream.try_next().await;
         let part = multipart_stream.try_next().await.unwrap();
         assert_eq!(part.headers().get("content-disposition").unwrap(), "form-data; name=\"field1\"");
-        assert_eq!(part.body(), &Bytes::from_static(b"value1\r\n"));
+        assert_eq!(part.body(), &Bytes::from_static(b"value1"));
 
         // 应该已经到达流的末尾
         let result = multipart_stream.try_next().await;
@@ -420,7 +421,7 @@ value2\r\n\
         let mut multipart_stream = MultipartStream::new(stream, BOUNDARY.as_bytes());
         let part1 = multipart_stream.try_next().await.unwrap();
         assert_eq!(part1.headers().get("content-disposition").unwrap(), "form-data; name=\"field1\"");
-        assert_eq!(part1.body(), &Bytes::from_static(b"value1\r\n"));
+        assert_eq!(part1.body(), &Bytes::from_static(b"value1"));
 
         let part2 = multipart_stream.try_next().await.unwrap();
         assert_eq!(part2.headers().get("content-disposition").unwrap(), "form-data; name=\"empty_field\"");
@@ -428,7 +429,7 @@ value2\r\n\
 
         let part3 = multipart_stream.try_next().await.unwrap();
         assert_eq!(part3.headers().get("content-disposition").unwrap(), "form-data; name=\"field2\"");
-        assert_eq!(part3.body(), &Bytes::from_static(b"value2\r\n"));
+        assert_eq!(part3.body(), &Bytes::from_static(b"value2"));
 
         let result = multipart_stream.try_next().await;
         assert!(matches!(result, Err(Error::Eof)));
