@@ -1,12 +1,6 @@
 # Multipart Stream
 
-![alt text](https://img.shields.io/crates/v/multipart_async_stream.svg)
-
-
-![alt text](https://docs.rs/multipart_async_stream/badge.svg)
-
-
-![alt text](https://github.com/OpenTritium/multipart_stream/actions/workflows/ci.yaml/badge.svg)
+![alt text](https://img.shields.io/crates/v/multipart_async_stream.svg) ![alt text](https://docs.rs/multipart_async_stream/badge.svg) ![alt text](https://github.com/OpenTritium/multipart_stream/actions/workflows/ci.yaml/badge.svg)
 
 This library is designed as an adapter for `futures_util::TryStream`, allowing for easy parsing of an incoming byte stream (such as from an HTTP response) and splitting it into multiple parts (`Part`). It is especially useful for handling `multipart/byteranges` HTTP responses.
 
@@ -14,9 +8,7 @@ A common use case is sending an HTTP Range request to a server and then parsing 
 The example below demonstrates how to use reqwest to download multiple ranges of a file and parse the individual parts using multipart_stream.
 
 ```rust
-use async_iterator::LendingIterator;
-use futures_util::TryStreamExt;
-use http::header::CONTENT_TYPE;
+use multipart_async_stream::{LendingIterator, MultipartStream, TryStreamExt, header::CONTENT_TYPE};
 
 #[tokio::main]
 async fn main() {
@@ -31,7 +23,7 @@ async fn main() {
         .and_then(|s| s.split("boundary=").nth(1))
         .map(|s| s.trim().as_bytes().to_vec().into_boxed_slice());
     let s = response.bytes_stream();
-    let mut m = multipart_async_stream::MultipartStream::new(s, &boundary.unwrap());
+    let mut m = MultipartStream::new(s, &boundary.unwrap());
 
     while let Some(Ok(part)) = m.next().await {
         println!("{:?}", part.headers());

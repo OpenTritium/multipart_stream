@@ -1,7 +1,8 @@
-use async_iterator::LendingIterator;
+pub use async_iterator::LendingIterator;
 use bytes::{Buf, Bytes, BytesMut};
 use constcat::concat_bytes;
-use futures_util::{TryStream, TryStreamExt};
+pub use futures_util::{TryStream, TryStreamExt};
+pub use http::header;
 use http::{HeaderMap, HeaderName, HeaderValue};
 use httparse::{EMPTY_HEADER, Status, parse_headers};
 use memchr::memmem::Finder;
@@ -41,7 +42,7 @@ pub enum ParseError {
     Other(#[from] httparse::Error),
     #[error("buffer no cahnge")]
     BufferNoChange,
-    #[error("")]
+    #[error("incomplete headers content")]
     TryParsePartial,
 }
 
