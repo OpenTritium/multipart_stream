@@ -1,4 +1,4 @@
-use http::header::CONTENT_TYPE;
+use multipart_async_stream::{LendingIterator, MultipartStream, TryStreamExt, header::CONTENT_TYPE};
 
 #[tokio::main]
 async fn main() {
@@ -13,8 +13,13 @@ async fn main() {
         .and_then(|s| s.split("boundary=").nth(1))
         .map(|s| s.trim().as_bytes().to_vec().into_boxed_slice());
     let s = response.bytes_stream();
-    let mut m = multipart_async_stream::MultipartStream::new(s, &boundary.unwrap());
-    while let Ok(x) = m.try_next().await {
-        println!("Part: {x:?}");
+    let mut m = MultipartStream::new(s, &boundary.unwrap());
+
+    while let Some(Ok(part)) = m.next().await {
+        println!("{:?}", part.headers());
+        let mut body = part.body();
+        while let Ok(Some(b)) = body.try_next().await {
+            println!("{:?}", b);
+        }
     }
 }
