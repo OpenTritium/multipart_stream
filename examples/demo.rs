@@ -19,7 +19,7 @@ async fn main() {
         println!("{:?}", part.headers());
         let mut body = part.body();
         while let Ok(Some(b)) = body.try_next().await {
-            println!("{:?}", b);
+            println!("body streaming: {:?}", b);
         }
     }
 }
