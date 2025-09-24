@@ -9,6 +9,7 @@ use memchr::memmem::Finder;
 use std::{
     mem,
     ops::Not,
+    pin::Pin,
     str::FromStr,
     task::{Context, Poll},
 };
@@ -19,7 +20,7 @@ pub enum Error {
     #[error("the stream has been terminated before the end of the part")]
     EarlyTerminate,
     #[error("stream error: {0}")]
-    StreamError(#[from] Box<dyn std::error::Error>),
+    StreamError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("parse error: {0}")]
     ParseError(#[from] ParseError),
     #[error("body stream is not consumed")]
@@ -259,14 +260,30 @@ where
     where
         S: 'a;
 
-    async fn next(&mut self) -> Option<Self::Item<'_>> {
-        let this = self as *mut Self;
-        let result = futures_util::future::poll_fn(move |cx| {
-            let this = unsafe { &mut *this };
-            this.poll_next_part(cx)
-        })
-        .await;
-        unsafe { mem::transmute::<Option<Result<Part<'_, S>, Error>>, Option<Result<Part<'_, S>, Error>>>(result) }
+    fn next(&mut self) -> impl futures_util::Future<Output = Option<<Self as LendingIterator>::Item<'_>>> {
+        NextFuture { stream: self }
+    }
+}
+
+pub struct NextFuture<'a, S>
+where
+    S: TryStream<Ok = Bytes> + Unpin,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    stream: &'a mut MultipartStream<S>,
+}
+
+impl<'a, S> Future for NextFuture<'a, S>
+where
+    S: TryStream<Ok = Bytes> + Unpin,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Output = Option<Result<Part<'a, S>, Error>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let stream: &mut MultipartStream<S> = self.get_mut().stream;
+        let mut stream_pin = unsafe { Pin::new_unchecked(stream) };
+        unsafe { mem::transmute(stream_pin.poll_next_part(cx)) }
     }
 }
 

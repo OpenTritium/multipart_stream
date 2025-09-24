@@ -15,11 +15,15 @@ async fn main() {
     let s = response.bytes_stream();
     let mut m = MultipartStream::new(s, &boundary.unwrap());
 
-    while let Some(Ok(part)) = m.next().await {
-        println!("{:?}", part.headers());
-        let mut body = part.body();
-        while let Ok(Some(b)) = body.try_next().await {
-            println!("body streaming: {:?}", b);
+    tokio::spawn(async move {
+        while let Some(Ok(part)) = m.next().await {
+            println!("{:?}", part.headers());
+            let mut body = part.body();
+            while let Ok(Some(b)) = body.try_next().await {
+                println!("body streaming: {:?}", b);
+            }
         }
-    }
+    })
+    .await
+    .unwrap();
 }
