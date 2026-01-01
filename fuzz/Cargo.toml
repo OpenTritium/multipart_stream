@@ -22,3 +22,24 @@ path = "fuzz_targets/parse_stream.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "parse_random"
+path = "fuzz_targets/parse_random.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_headers_only"
+path = "fuzz_targets/parse_headers_only.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_boundary_edge_cases"
+path = "fuzz_targets/parse_boundary_edge_cases.rs"
+test = false
+doc = false
+bench = false

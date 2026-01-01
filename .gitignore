@@ -1,1 +1,8 @@
 /target
+
+# Fuzzing artifacts and outputs
+fuzz/artifacts/
+fuzz/corpus/
+fuzz/fuzz-*.log
+fuzz/fuzz_reports/
+fuzz/target/

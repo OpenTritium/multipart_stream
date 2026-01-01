@@ -2,16 +2,20 @@
 name = "multipart_async_stream"
 version = "0.2.4"
 edition = "2024"
-license = "MIT OR Apache-2.0"
 description = "An easy-to-use, efficient, and asynchronous multipart stream parser."
-repository = "https://github.com/OpenTritium/multipart_stream"
 readme = "README.md"
-keywords = ["multipart", "stream", "async", "parser", "http"]
+repository = "https://github.com/OpenTritium/multipart_stream"
+license = "MIT OR Apache-2.0"
+keywords = ["async", "http", "multipart", "parser", "stream"]
 categories = [
-    "network-programming",
-    "parser-implementations",
-    "web-programming",
+  "network-programming",
+  "parser-implementations",
+  "web-programming",
 ]
+
+[[bench]]
+harness = false
+name = "benchmark"
 
 [dependencies]
 async-iterator = "2.3.0"
@@ -24,5 +28,7 @@ memchr = "2.7.6"
 thiserror = "2.0.17"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["async_futures", "html_reports"] }
+multipart-rs = "0.2.1"
 reqwest = { version = "0.12.23", features = ["stream"] }
 tokio = { version = "1.47.1", features = ["full"] }
