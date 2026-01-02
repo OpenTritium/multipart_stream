@@ -41,8 +41,11 @@ async fn bench_multipart_async_stream_small_parts(data: &[u8], boundary: &[u8]) 
     while let Some(Ok(part)) = multipart.next().await {
         let _headers = part.headers();
         let mut body_stream = part.body();
-        while let Ok(Some(_chunk)) = body_stream.try_next().await {
-            // Consume body
+
+        // Collect body into Vec to simulate real processing
+        let mut body_data = Vec::new();
+        while let Ok(Some(chunk)) = body_stream.try_next().await {
+            body_data.extend_from_slice(&chunk);
         }
     }
 }
@@ -56,12 +59,15 @@ async fn bench_multipart_rs_small_parts(data: Vec<u8>, boundary: &str) {
     let mut reader = MultipartReader::from_stream_with_boundary_and_type(
         Box::pin(stream),
         boundary,
-        multipart_rs::MultipartType::FormData,
+        multipart_rs::MultipartType::Mixed,
     )
     .unwrap();
 
     while let Some(Ok(item)) = reader.next().await {
-        drop(item.data);
+        // Clone body to Vec to simulate real processing (fair comparison)
+        let mut body_data = Vec::new();
+        body_data.extend_from_slice(&item.data);
+        drop(body_data);
         drop(item.headers);
     }
 }
@@ -74,8 +80,11 @@ async fn bench_multipart_async_stream_large_body(data: &[u8], boundary: &[u8]) {
     while let Some(Ok(part)) = multipart.next().await {
         let _headers = part.headers();
         let mut body_stream = part.body();
-        while let Ok(Some(_chunk)) = body_stream.try_next().await {
-            // Consume body
+
+        // Collect body into Vec to simulate real processing
+        let mut body_data = Vec::new();
+        while let Ok(Some(chunk)) = body_stream.try_next().await {
+            body_data.extend_from_slice(&chunk);
         }
     }
 }
@@ -89,12 +98,15 @@ async fn bench_multipart_rs_large_body(data: Vec<u8>, boundary: &str) {
     let mut reader = MultipartReader::from_stream_with_boundary_and_type(
         Box::pin(stream),
         boundary,
-        multipart_rs::MultipartType::FormData,
+        multipart_rs::MultipartType::Mixed,
     )
     .unwrap();
 
     while let Some(Ok(item)) = reader.next().await {
-        drop(item.data);
+        // Clone body to Vec to simulate real processing (fair comparison)
+        let mut body_data = Vec::new();
+        body_data.extend_from_slice(&item.data);
+        drop(body_data);
         drop(item.headers);
     }
 }
@@ -323,6 +335,40 @@ fn benchmark_real_world_multi_file_upload(c: &mut Criterion) {
         });
     });
 
+    group.bench_function("multipart-rs", |b| {
+        b.to_async(FuturesExecutor).iter(|| {
+            let data = data.clone();
+            let boundary = boundary.to_string();
+            async move {
+                use futures_util::StreamExt;
+                use multipart_rs::MultipartReader;
+
+                let stream = stream::iter(vec![Ok::<_, Infallible>(Bytes::from(data))]);
+                let mut reader = MultipartReader::from_stream_with_boundary_and_type(
+                    Box::pin(stream),
+                    &boundary,
+                    multipart_rs::MultipartType::Mixed,
+                )
+                .unwrap();
+
+                let mut part_count = 0;
+                let mut total_bytes = 0;
+
+                while let Some(Ok(item)) = reader.next().await {
+                    part_count += 1;
+                    // Consume the data
+                    total_bytes += item.data.len();
+                    // Simulate processing
+                    let _sum = item.data.iter().map(|&b| b as usize).sum::<usize>();
+                    drop(item.headers);
+                }
+
+                assert_eq!(part_count, 8);
+                assert!(total_bytes > 1_000_000);
+            }
+        });
+    });
+
     group.finish();
 }
 
@@ -371,6 +417,34 @@ fn benchmark_large_file_upload(c: &mut Criterion) {
                     while let Ok(Some(chunk)) = body_stream.try_next().await {
                         total_bytes += chunk.len();
                     }
+                }
+
+                assert!(total_bytes >= 10_000_000);
+            }
+        });
+    });
+
+    group.bench_function("multipart-rs", |b| {
+        b.to_async(FuturesExecutor).iter(|| {
+            let data = data.clone();
+            let boundary = boundary.to_string();
+            async move {
+                use futures_util::StreamExt;
+                use multipart_rs::MultipartReader;
+
+                let stream = stream::iter(vec![Ok::<_, Infallible>(Bytes::from(data))]);
+                let mut reader = MultipartReader::from_stream_with_boundary_and_type(
+                    Box::pin(stream),
+                    &boundary,
+                    multipart_rs::MultipartType::Mixed,
+                )
+                .unwrap();
+
+                let mut total_bytes = 0;
+
+                while let Some(Ok(item)) = reader.next().await {
+                    total_bytes += item.data.len();
+                    drop(item.headers);
                 }
 
                 assert!(total_bytes >= 10_000_000);

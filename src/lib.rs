@@ -1,5 +1,4 @@
 #![cfg_attr(not(test), warn(clippy::nursery, clippy::unwrap_used, clippy::todo, clippy::dbg_macro,))]
-#![allow(clippy::future_not_send)]
 
 //! A streaming multipart/form-data parser for Rust.
 //!
@@ -40,7 +39,6 @@
 
 pub use async_iterator::LendingIterator;
 use bytes::{Buf, Bytes, BytesMut};
-use constcat::concat_bytes;
 pub use futures_util::{TryStream, TryStreamExt};
 pub use http::header;
 use http::{HeaderMap, HeaderName, HeaderValue};
@@ -70,7 +68,7 @@ pub enum Error {
 
     /// An error occurred while reading from the underlying stream.
     #[error("stream error: {0}")]
-    StreamError(#[from] Box<dyn StdError + Send + Sync>),
+    StreamError(Box<dyn StdError + Send + Sync>),
 
     /// An error occurred during parsing of multipart data.
     #[error("parse error: {0}")]
@@ -122,6 +120,7 @@ pub enum ParseError {
 
 const CRLF: &[u8] = b"\r\n";
 const DOUBLE_HYPHEN: &[u8] = b"--";
+const HEADER_BODY_SPLITTER: &[u8] = b"\r\n\r\n";
 
 /// A streaming multipart/form-data parser.
 ///
@@ -162,7 +161,6 @@ where
     boundary_finder: Finder<'static>,
     boundary_finder_no_crlf: Finder<'static>,
     header_body_splitter_finder: Finder<'static>,
-    header_body_splitter_len: usize,
     buf: BytesMut,
     _pin: PhantomPinned,
 }
@@ -189,14 +187,16 @@ where
     /// let stream = stream::iter(vec![Result::<Bytes, std::convert::Infallible>::Ok(Bytes::from("data"))]);
     /// let multipart = MultipartStream::new(stream, b"my-boundary");
     /// ```
+    #[inline]
     pub fn new(stream: S, boundary: &[u8]) -> Self {
-        let pre_alloc_size = boundary.len() + 2 * CRLF.len() + 2 * DOUBLE_HYPHEN.len();
+        let boundary_len = boundary.len();
+        assert!(boundary_len > 0 && boundary_len <= 70, "boundary length must be between 1 and 70 bytes");
+        let pre_alloc_size = boundary_len + 2 * CRLF.len() + DOUBLE_HYPHEN.len();
         let mut pattern = Vec::with_capacity(pre_alloc_size);
         pattern.extend_from_slice(CRLF);
         pattern.extend_from_slice(DOUBLE_HYPHEN);
         pattern.extend_from_slice(boundary);
         pattern.extend_from_slice(CRLF);
-        const HEADER_BODY_SPLITTER: &[u8] = concat_bytes!(CRLF, CRLF);
         let pattern = pattern.into_boxed_slice();
         let pattern_ptr = pattern.as_ptr();
         let boundary_finder = Finder::new(unsafe { slice::from_raw_parts(pattern_ptr, pattern.len() - 2) });
@@ -208,12 +208,11 @@ where
             rx: stream,
             terminated: false,
             state: ParserState::Preamble(0),
-            buf: BytesMut::new(),
+            buf: BytesMut::with_capacity(4 * 1024),
             pattern,
             boundary_finder,
             boundary_finder_no_crlf,
             header_body_splitter_finder: Finder::new(HEADER_BODY_SPLITTER),
-            header_body_splitter_len: HEADER_BODY_SPLITTER.len(),
             _pin: PhantomPinned,
         }
     }
@@ -228,6 +227,7 @@ where
     }
 
     // Always return none when not in StreamingBody state
+    #[inline]
     fn poll_next_body_chunk(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, Error>>> {
         use ParserState::*;
         use Poll::*;
@@ -272,7 +272,7 @@ where
                             return Ready(Some(Ok(chunk)));
                         }
                         // Continue receiving to determine the next two bytes
-                        None => {}
+                        None => (),
                     }
                 } else {
                     // Return preceding bytes (because boundary cannot be matched at all), keep window -1 bytes, then
@@ -330,13 +330,13 @@ where
                     }
                 }
                 // CRLFCRLF
-                ReadingHeaders(scan) if prev_buf_len >= self.header_body_splitter_len + scan => {
+                ReadingHeaders(scan) if prev_buf_len >= HEADER_BODY_SPLITTER.len() + scan => {
                     if let Some(pos) = self.header_body_splitter_finder.find(&self.buf[scan..]) {
-                        let hdrs_end = scan + pos + self.header_body_splitter_len;
+                        let hdrs_end = scan + pos + HEADER_BODY_SPLITTER.len();
                         let hdrs_content = &self.buf[..hdrs_end]; // Include both CRLFs in parsing
                         let mut hdrs_buf = [EMPTY_HEADER; 64];
                         match parse_headers(hdrs_content, &mut hdrs_buf) {
-                            Ok(Status::Complete(_)) => {}
+                            Ok(Status::Complete(_)) => (),
                             Ok(Status::Partial) => return Ready(Some(Err(ParseError::TryParsePartial.into()))),
                             Err(err) => return Ready(Some(Err(ParseError::Other(err).into()))),
                         }
@@ -351,10 +351,10 @@ where
                             .collect::<HeaderMap>();
                         self.buf.advance(hdrs_end);
                         self.state = StreamingBody(0);
-                        return Ready(Some(Ok(Part::new(self, headers.into()))));
+                        return Ready(Some(Ok(Part::new(self, headers))));
                     } else {
                         // Specify new scan position, still just after the last window
-                        let new_scan = self.buf.len() - self.header_body_splitter_len + 1;
+                        let new_scan = self.buf.len() - HEADER_BODY_SPLITTER.len() + 1;
                         if new_scan == scan {
                             return Ready(Some(Err(ParseError::BufferNoChange.into())));
                         }
@@ -363,7 +363,7 @@ where
                 }
                 Finished => return Ready(None),
                 StreamingBody(_) => return Ready(Some(const { Err(Error::BodyNotConsumed) })),
-                _ => {}
+                _ => (),
             }
             if self.terminated && self.buf.len() == prev_buf_len {
                 return Ready(Some(Err(Error::EarlyTerminate)));
@@ -395,7 +395,7 @@ where
         S: 'a;
 
     #[inline]
-    fn next(&mut self) -> impl futures_util::Future<Output = Option<<Self as LendingIterator>::Item<'_>>> {
+    fn next(&mut self) -> impl Future<Output = Option<<Self as LendingIterator>::Item<'_>>> {
         NextFuture { stream: self }
     }
 }
@@ -464,7 +464,7 @@ where
     S::Error: StdError + Send + Sync + 'static,
 {
     body: &'a mut MultipartStream<S>,
-    headers: Box<HeaderMap>,
+    headers: HeaderMap,
 }
 
 impl<'a, S> Part<'a, S>
@@ -472,21 +472,25 @@ where
     S: TryStream<Ok = Bytes> + Unpin,
     S::Error: StdError + Send + Sync + 'static,
 {
-    const fn new(stream: &'a mut MultipartStream<S>, headers: Box<HeaderMap>) -> Self { Self { body: stream, headers } }
+    #[inline]
+    const fn new(stream: &'a mut MultipartStream<S>, headers: HeaderMap) -> Self { Self { body: stream, headers } }
 
     /// Returns a reference to the headers of this part.
-    pub fn headers(&self) -> &HeaderMap { &self.headers }
+    #[inline]
+    pub const fn headers(&self) -> &HeaderMap { &self.headers }
 
     /// Consumes this part and returns the headers.
     ///
     /// This is useful when you want to take ownership of the headers
     /// and no longer need the body.
-    pub fn into_headers(self) -> HeaderMap { *self.headers }
+    #[inline]
+    pub fn into_headers(self) -> HeaderMap { self.headers }
 
     /// Returns a stream for the body of this part.
     ///
     /// The returned stream yields chunks of `Bytes` as they arrive from the
     /// underlying multipart stream.
+    #[inline]
     pub fn body(self) -> impl TryStream<Ok = Bytes, Error = Error> + 'a {
         futures_util::stream::poll_fn(move |cx| self.body.poll_next_body_chunk(cx))
     }
@@ -946,10 +950,8 @@ body\r\n\
     async fn test_part_with_no_headers() {
         // Test edge case: part with minimal headers
         let boundary = "boundary";
-        let body = format!(
-            "--{}\r\nContent-Disposition: form-data\r\n\r\nbody value\r\n--{}--\r\n",
-            boundary, boundary
-        );
+        let body =
+            format!("--{}\r\nContent-Disposition: form-data\r\n\r\nbody value\r\n--{}--\r\n", boundary, boundary);
 
         let stream = create_stream_from_chunks(body.as_bytes(), 20);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1040,9 +1042,7 @@ body\r\n\
         }
 
         // Run 10 concurrent streams
-        let handles: Vec<_> = (0..10).map(|i| {
-            tokio::spawn(parse_stream(boundary, i))
-        }).collect();
+        let handles: Vec<_> = (0..10).map(|i| tokio::spawn(parse_stream(boundary, i))).collect();
 
         for handle in handles {
             handle.await.unwrap();
@@ -1056,12 +1056,8 @@ body\r\n\
         // Test real-world file upload scenario with filename
         let boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
         let body = format!(
-            "--{}\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n\
-             Content-Type: text/plain\r\n\
-             \r\n\
-             This is file content\r\n\
-             --{}--\r\n",
+            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\nContent-Type: \
+             text/plain\r\n\r\nThis is file content\r\n--{}--\r\n",
             boundary, boundary
         );
 
@@ -1080,12 +1076,9 @@ body\r\n\
     async fn test_unicode_filename_rfc2231() {
         // Test RFC 2231 encoded filename (UTF-8)
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"file\"; filename*=UTF-8''%E4%B8%AD%E6%96%87.txt\r\n\
-             Content-Type: text/plain\r\n\
-             \r\n\
-             content\r\n\
-             --boundary--\r\n";
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"file\"; \
+                    filename*=UTF-8''%E4%B8%AD%E6%96%87.txt\r\nContent-Type: \
+                    text/plain\r\n\r\ncontent\r\n--boundary--\r\n";
 
         let stream = create_stream_from_chunks(body.as_bytes(), 30);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1100,11 +1093,8 @@ body\r\n\
     async fn test_multiple_content_disposition_parameters() {
         // Test Content-Disposition with multiple parameters
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"field\"; filename=\"file.txt\"; size=\"1024\"\r\n\
-             \r\n\
-             value\r\n\
-             --boundary--\r\n";
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"field\"; filename=\"file.txt\"; \
+                    size=\"1024\"\r\n\r\nvalue\r\n--boundary--\r\n";
 
         let stream = create_stream_from_chunks(body.as_bytes(), 30);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1122,20 +1112,12 @@ body\r\n\
         // Test various common content types
         let boundary = "boundary";
 
-        for content_type in [
-            "text/plain",
-            "application/json",
-            "application/octet-stream",
-            "image/jpeg",
-            "application/pdf",
-        ] {
+        for content_type in
+            ["text/plain", "application/json", "application/octet-stream", "image/jpeg", "application/pdf"]
+        {
             let body = format!(
-                "--{}\r\n\
-                 Content-Disposition: form-data; name=\"file\"\r\n\
-                 Content-Type: {}\r\n\
-                 \r\n\
-                 dummy content\r\n\
-                 --{}--\r\n",
+                "--{}\r\nContent-Disposition: form-data; name=\"file\"\r\nContent-Type: {}\r\n\r\ndummy \
+                 content\r\n--{}--\r\n",
                 boundary, content_type, boundary
             );
 
@@ -1153,12 +1135,8 @@ body\r\n\
     async fn test_content_transfer_encoding() {
         // Test Content-Transfer-Encoding header (though rarely used in multipart/form-data)
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"field\"\r\n\
-             Content-Transfer-Encoding: binary\r\n\
-             \r\n\
-             value\r\n\
-             --boundary--\r\n";
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"field\"\r\nContent-Transfer-Encoding: \
+                    binary\r\n\r\nvalue\r\n--boundary--\r\n";
 
         let stream = create_stream_from_chunks(body.as_bytes(), 30);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1173,12 +1151,8 @@ body\r\n\
     async fn test_case_insensitive_headers() {
         // Test that header names are case-insensitive (HTTP standard)
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             content-disposition: form-data; name=\"field\"\r\n\
-             content-type: text/plain\r\n\
-             \r\n\
-             value\r\n\
-             --boundary--\r\n";
+        let body = "--boundary\r\ncontent-disposition: form-data; name=\"field\"\r\ncontent-type: \
+                    text/plain\r\n\r\nvalue\r\n--boundary--\r\n";
 
         let stream = create_stream_from_chunks(body.as_bytes(), 30);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1199,10 +1173,7 @@ body\r\n\
         // Test stream error during body reading
         // We simulate this by using early termination which is similar
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"field\"\r\n\
-             \r\n\
-             partial content"; // Stream ends without proper boundary
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\npartial content"; // Stream ends without proper boundary
 
         let stream = create_stream_from_chunks(body.as_bytes(), 20);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1217,11 +1188,7 @@ body\r\n\
     async fn test_incomplete_boundary_at_end() {
         // Test incomplete boundary at end of stream
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"field\"\r\n\
-             \r\n\
-             value\r\n\
-             --bound"; // Incomplete boundary
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\nvalue\r\n--bound"; // Incomplete boundary
 
         let stream = create_stream_from_chunks(body.as_bytes(), 20);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1235,11 +1202,7 @@ body\r\n\
     async fn test_malformed_boundary_missing_crlf() {
         // Test boundary missing required CRLF
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"field\"\r\n\
-             \r\n\
-             value\r\n\
-             --boundary--"; // Missing final \r\n
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\nvalue\r\n--boundary--"; // Missing final \r\n
 
         let stream = create_stream_from_chunks(body.as_bytes(), 20);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1253,10 +1216,7 @@ body\r\n\
     async fn test_missing_final_boundary() {
         // Test completely missing final boundary
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"field\"\r\n\
-             \r\n\
-             value"; // No ending boundary at all
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\nvalue"; // No ending boundary at all
 
         let stream = create_stream_from_chunks(body.as_bytes(), 20);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1270,11 +1230,8 @@ body\r\n\
     async fn test_boundary_injection_attack() {
         // Test boundary injection attack: boundary string appears in body
         let boundary = "abc";
-        let body = "--abc\r\n\
-             Content-Disposition: form-data; name=\"field\"\r\n\
-             \r\n\
-             value contains --abc text inside\r\n\
-             --abc--\r\n";
+        let body = "--abc\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\nvalue contains --abc text \
+                    inside\r\n--abc--\r\n";
 
         let stream = create_stream_from_chunks(body.as_bytes(), 10);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
@@ -1289,12 +1246,8 @@ body\r\n\
     async fn test_header_injection_attempt() {
         // Test potential header injection (should be handled correctly)
         let boundary = "boundary";
-        let body = "--boundary\r\n\
-             Content-Disposition: form-data; name=\"field\"\r\n\
-             X-Custom: value\r\n\
-             \r\n\
-             body\r\n\
-             --boundary--\r\n";
+        let body = "--boundary\r\nContent-Disposition: form-data; name=\"field\"\r\nX-Custom: \
+                    value\r\n\r\nbody\r\n--boundary--\r\n";
 
         let stream = create_stream_from_chunks(body.as_bytes(), 30);
         let mut m = MultipartStream::new(stream, boundary.as_bytes());
