@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "multipart_async_stream"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "async-iterator",
  "bytes",
