@@ -3,15 +3,15 @@
 [![Crates.io](https://img.shields.io/crates/v/multipart_async_stream.svg)](https://crates.io/crates/multipart_async_stream)
 [![Documentation](https://docs.rs/multipart_async_stream/badge.svg)](https://docs.rs/multipart_async_stream)
 
-A high-performance, zero-copy streaming multipart/form-data and multipart/byteranges parser for Rust.
+A high-performance, zero-copy streaming multipart parser for Rust.
+
+This is a **general-purpose multipart parser** compatible with all [RFC 2046](https://datatracker.ietf.org/doc/html/rfc2046#section-5.1) multipart types (`form-data`, `byteranges`, `mixed`, `alternative`, `related`, etc.). The parser handles boundary detection and part streaming, while you handle the type-specific semantics in your application code.
 
 ## Features
 
-- **Zero-copy parsing** - Leverages `memchr` for efficient pattern matching
+- **Zero-copy parsing** - Uses `memchr` for efficient pattern matching
 - **Streaming API** - Process data incrementally without buffering the entire input
-- **Lending iterator pattern** - Yields parts as they arrive using GATs
-- **Async-first** - Built on `futures` with `async`/`await` support
-- **HTTP-compliant** - Handles both `multipart/form-data` and `multipart/byteranges`
+- **Universal support** - Works with all standard multipart types
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         --boundary--\r\n";
 
     let stream = stream::iter(vec![
-        Result::<Bytes, std::convert::Infallible>:: Ok(Bytes::from(&data[..]))
+        Result::<Bytes, std::convert::Infallible>::Ok(Bytes::from(&data[..]))
     ]);
     let mut multipart = MultipartStream::new(stream, b"boundary");
 
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Headers: {:?}", part.headers());
         let mut body = part.body();
         while let Some(chunk) = body.try_next().await? {
-            println!("Body chunk: {:?}", chunk);
+            println!("Body: {:?}", chunk);
         }
     }
 
@@ -46,47 +46,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## ⚠️ Critical Usage Requirements
+## Important Usage Notes
 
-### You **MUST** consume each part's body completely before requesting the next part
+### You MUST consume each part's body before requesting the next part
 
-This is the most important rule when using this library:
+This library uses a lending iterator pattern where each `Part` must be fully consumed before calling `next()`:
 
-1. **Each `Part` holds a mutable borrow** of the underlying `MultipartStream`
-2. **The body must be fully consumed** (until it returns `None`) before the next call to `next()`
-3. **Failure to comply** will result in a `BodyNotConsumed` error
+1. **Access headers before body**: Calling `part.body()` consumes the part, so you must access `part.headers()` first
+2. **Consume the body completely**: The body stream must be fully consumed (until it returns `None`) before calling `next()` again
+3. **Failure to comply**: Will result in a `BodyNotConsumed` error
 
 #### ❌ Wrong
 
 ```rust
-let part1 = multipart.next().await.unwrap()?;
-// Don't do this! Trying to get the next part without consuming part1's body
-let part2 = multipart.next().await; // Returns Err(BodyNotConsumed)
+let part = multipart.next().await?.unwrap();
+let body = part.body(); // Consumes the part
+println!("{:?}", part.headers()); // ERROR: part is already consumed!
 ```
 
 #### ✅ Right
 
 ```rust
 while let Some(Ok(part)) = multipart.next().await {
-    // Always consume the body completely
-    let mut body = part.body();
+    let headers = part.headers(); // Access headers first
+    println!("{:?}", headers);
+    let mut body = part.body(); // Then consume the part to get body
     while let Some(chunk) = body.try_next().await? {
         // Process chunk...
     }
-    // body is now exhausted, part is dropped
-    // Safe to call next() again
 }
 ```
-
-## Why This Requirement?
-
-This library uses a **lending iterator** pattern where each `Part` mutably borrows the parser state. This design enables:
-
-- **Zero-copy operation** - No unnecessary buffering of body data
-- **Constant memory usage** - Memory usage stays O(1) regardless of part size
-- **Performance** - Single-pass parsing with minimal allocations
-
-The tradeoff is that you must consume parts sequentially. See [RFC 2956](https://rust-lang.github.io/rfcs/2956-lending-iterator.html) for details on lending iterators in Rust.
 
 ## HTTP Range Request Example
 
@@ -103,19 +92,25 @@ async fn main() {
         .await
         .unwrap();
 
-    // Extract boundary from Content-Type header
-    let boundary = response
+    // Extract multipart type and boundary from Content-Type header
+    // Example: "multipart/byteranges; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    let content_type = response
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split("boundary=").nth(1))
+        .expect("multipart content-type");
+
+    let boundary = content_type
+        .split("boundary=")
+        .nth(1)
         .map(|s| s.trim().as_bytes())
-        .expect("multipart boundary");
+        .expect("boundary parameter");
 
     let mut multipart = MultipartStream::new(response.bytes_stream(), boundary);
 
     while let Some(Ok(part)) = multipart.next().await {
-        println!("{:?}", part.headers());
+        let headers = part.headers();
+        println!("{:?}", headers);
         let mut body = part.body();
         while let Ok(Some(chunk)) = body.try_next().await {
             // Process each range...
@@ -126,47 +121,7 @@ async fn main() {
 
 ## Performance
 
-- **O(n) time complexity** - Single pass through the input
-- **O(1) space complexity** - Fixed buffer size regardless of input size
-- **Zero-copy** - Body chunks are returned as views into the input buffer
-- **memchr-optimized** - Uses SIMD-accelerated byte pattern matching
-
-## Fuzzing
-
-This crate includes comprehensive fuzzing tests to ensure reliability and security:
-
-```bash
-# Run fuzz tests (3 hours by default - production-ready duration)
-cd fuzz && ./fuzz_test.sh
-
-# Quick test for development (5 minutes)
-cd fuzz && ./fuzz_test.sh 300
-
-# Standard test for PR validation (30 minutes)
-cd fuzz && ./fuzz_test.sh 1800
-
-# Extended test for release candidates (6 hours)
-cd fuzz && ./fuzz_test.sh 21600
-
-# Manual testing individual targets
-cargo fuzz run parse_stream
-cargo fuzz run parse_random
-```
-
-**Recommended Testing Durations:**
-- **Development**: 5 minutes - Quick smoke test during active development
-- **PR Validation**: 30 minutes - Thorough testing before merging code changes
-- **Pre-release**: 3 hours - Default duration for production releases
-- **Critical Updates**: 6-24 hours - Extended testing for security or core parser changes
-
-**Results:**
-- ✅ No panics or crashes detected
-- ✅ 1656+ code coverage achieved
-- ✅ 3200+ exec/s execution speed
-- ✅ Memory-safe with no leaks
-
-See [fuzz/README.md](fuzz/README.md) for documentation.
-
-## License
-
-MIT OR Apache-2.0
+- **O(n) time** - Single pass through the input
+- **O(1) space** - Fixed buffer size regardless of input size
+- **Zero-copy** - Body chunks are views into the input buffer
+- **memchr-optimized** - Uses SIMD-accelerated pattern matching

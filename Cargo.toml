@@ -1,6 +1,6 @@
 [package]
 name = "multipart_async_stream"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2024"
 description = "An easy-to-use, efficient, and asynchronous multipart stream parser."
 readme = "README.md"
@@ -34,11 +34,11 @@ tokio = { version = "1.48.0", features = ["full"] }
 
 [profile.release]
 opt-level = 3
-lto = "thin"
-codegen-units = 1
-panic = "abort"
 strip = true
 overflow-checks = false
+lto = "thin"
+panic = "abort"
+codegen-units = 1
 
 [profile.release.build-override]
 opt-level = 3
